@@ -43,6 +43,7 @@ class AgentBrain:
 
         @retry_on_failure(max_retries=2, delay=0.5, exceptions=(Exception,))
         def _brain_api_call():
+            safe_input = sanitize_text(user_input)
             return client.chat.completions.create(
                 model="deepseek-v4-pro",
                 messages=[
@@ -54,7 +55,7 @@ class AgentBrain:
                      f"- 复杂多步操作→tool_chain 或 autonomous\n"
                      f"- 需要搜索研究→agent_spawn:researcher\n- 需要反思→agent_spawn:reflector\n"
                      f"只输出JSON: {{\"intent\":\"...\",\"strategy\":\"...\",\"confidence\":0.X,\"reason\":\"...\"}}"},
-                    {"role": "user", "content": user_input},
+                    {"role": "user", "content": safe_input},
                 ],
                 temperature=0.3, max_tokens=150,
             )
