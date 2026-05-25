@@ -146,7 +146,7 @@ def listen_text():
 
 def listen():
     import speech_recognition as sr
-    with sr.Microphone() as source:
+    with sr.Microphone(device_index=cfg.MIC_DEVICE_INDEX) as source:
         print('\n[正在听...]')
         recognizer.adjust_for_ambient_noise(source, duration=0.5)
         try:

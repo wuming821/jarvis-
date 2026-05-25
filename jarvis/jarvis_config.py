@@ -61,6 +61,9 @@ if not DEEPSEEK_API_KEY:
 # --- 模式 ---
 TEXT_MODE = '--text' in sys.argv
 
+# --- 麦克风设备索引 (0=默认虚拟设备可能无效, 1=Realtek麦克风阵列) ---
+MIC_DEVICE_INDEX = 1
+
 # --- 唤醒词 ---
 WAKE_WORDS = [
     "贾维斯", "jarvis", "hey jarvis", "嘿贾维斯",
