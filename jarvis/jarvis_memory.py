@@ -4,7 +4,7 @@ import json
 import os
 import re
 from datetime import datetime
-from jarvis_config import client
+from jarvis_config import client, _sanitize_recursive, sanitize_text
 
 
 class JarvisMemory:
@@ -42,6 +42,7 @@ class JarvisMemory:
             data['brain'] = brain.to_dict()
         if conversations is not None:
             data['conversations'] = conversations
+        data = _sanitize_recursive(data)
         with open(self.filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -151,7 +152,7 @@ class JarvisMemory:
                 ],
                 temperature=0.3, max_tokens=100,
             )
-            answer = resp.choices[0].message.content
+            answer = sanitize_text(resp.choices[0].message.content)
         except Exception:
             return ""
         ids = re.findall(r'#(\d+)', answer)

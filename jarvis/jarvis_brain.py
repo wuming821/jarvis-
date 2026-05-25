@@ -3,7 +3,7 @@
 import json
 import re as _re
 from datetime import datetime
-from jarvis_config import client
+from jarvis_config import client, sanitize_text
 from jarvis_logger import get_logger, retry_on_failure
 
 log = get_logger("brain")
@@ -60,7 +60,7 @@ class AgentBrain:
             )
         try:
             resp = _brain_api_call()
-            text = resp.choices[0].message.content.strip()
+            text = sanitize_text(resp.choices[0].message.content.strip())
             json_match = _re.search(r'\{[^}]+\}', text)
             if json_match:
                 decision = json.loads(json_match.group())

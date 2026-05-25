@@ -11,7 +11,7 @@ import winsound
 import pyautogui
 import jarvis_config as cfg
 from jarvis_config import (client, engine, recognizer, browser, TEXT_MODE, BASE_DIR,
-                            WAKE_WORDS, ACK_BEEP, load_personality)
+                            WAKE_WORDS, ACK_BEEP, load_personality, sanitize_text)
 from jarvis_emotion import (EmotionSystem, update_emotion_from_input,
                              detect_user_emotion, get_user_emotion_context)
 from jarvis_scheduler import TaskManager
@@ -208,14 +208,17 @@ def chat_with_tools(user_input):
             if tool_count > 1:
                 print(f"  [第{round_idx+1}轮] AI 并行调用 {tool_count} 个工具:")
 
-            messages.append({
+            assistant_msg = {
                 "role": "assistant", "content": msg.content,
                 "tool_calls": [
                     {"id": tc.id, "type": "function", "function": {
                         "name": tc.function.name, "arguments": tc.function.arguments,
                     }} for tc in msg.tool_calls
                 ],
-            })
+            }
+            if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+                assistant_msg["reasoning_content"] = msg.reasoning_content
+            messages.append(assistant_msg)
 
             for tc in msg.tool_calls:
                 tool_name = tc.function.name
@@ -233,8 +236,11 @@ def chat_with_tools(user_input):
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
             continue
 
-        reply = msg.content or ""
-        messages.append({"role": "assistant", "content": reply})
+        reply = sanitize_text(msg.content or "")
+        assistant_msg = {"role": "assistant", "content": reply}
+        if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+            assistant_msg["reasoning_content"] = sanitize_text(msg.reasoning_content)
+        messages.append(assistant_msg)
         _save_conversations()
         return reply
 

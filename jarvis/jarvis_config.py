@@ -20,6 +20,24 @@ from jarvis_logger import get_logger
 
 log = get_logger("config")
 
+
+def sanitize_text(text):
+    """清理字符串中的非法 surrogate 字符，防止 UTF-8 编码失败"""
+    if not isinstance(text, str):
+        return text
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _sanitize_recursive(obj):
+    """递归清理对象中所有字符串的 surrogate 字符"""
+    if isinstance(obj, str):
+        return sanitize_text(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize_recursive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_recursive(v) for v in obj]
+    return obj
+
 # --- 加载 .env ---
 def _load_env():
     """从 .env 文件加载环境变量（不依赖 python-dotenv）"""
@@ -80,6 +98,32 @@ def load_personality():
     return "你是贾维斯(Jarvis)，一个AI助手。"
 
 # --- OpenAI 客户端 ---
+class _SafeChatCompletions:
+    """包装 chat.completions.create，自动清理所有输入中的 surrogate 字符"""
+    def __init__(self, original):
+        self._orig = original
+
+    def create(self, **kwargs):
+        if "messages" in kwargs:
+            kwargs["messages"] = _sanitize_recursive(kwargs["messages"])
+        return self._orig.create(**kwargs)
+
+
+class _SafeClient:
+    """包装 OpenAI client，拦截 chat.completions 调用"""
+    def __init__(self, raw_client):
+        self._raw = raw_client
+        self.chat = type(self)._SafeChat(self._raw.chat)
+
+    class _SafeChat:
+        def __init__(self, raw_chat):
+            self._raw_chat = raw_chat
+            self.completions = _SafeChatCompletions(raw_chat.completions)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
 def _create_client():
     proxy_url = "http://127.0.0.1:7897"
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -92,11 +136,12 @@ def _create_client():
     else:
         log.info("代理离线，直连模式")
         http_client = httpx.Client()
-    return OpenAI(
+    raw = OpenAI(
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
         http_client=http_client,
     )
+    return _SafeClient(raw)
 
 client = _create_client()
 

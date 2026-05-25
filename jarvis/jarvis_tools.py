@@ -6,7 +6,7 @@ import re
 import time
 from datetime import datetime
 import pyautogui
-from jarvis_config import client, browser, BASE_DIR
+from jarvis_config import client, browser, BASE_DIR, sanitize_text
 from jarvis_computer import (screenshot, get_mouse_pos, get_screen_size, run_program)
 from jarvis_agents import _run_agent, _execute_single_step, _reflect_on_execution
 from jarvis_logger import get_logger
@@ -167,7 +167,7 @@ def execute_tool(tool_name, arguments):
                 ],
                 temperature=0.7, max_tokens=1000,
             )
-            plan = resp.choices[0].message.content
+            plan = sanitize_text(resp.choices[0].message.content)
         except Exception as e:
             log.error(f"规划失败: {e}")
             return f"规划失败: {e}"
@@ -192,7 +192,7 @@ def execute_tool(tool_name, arguments):
                     messages=[{"role": "system", "content": "把用户目标拆成编号步骤。格式：1. xxx\n2. xxx"}, {"role": "user", "content": goal}],
                     temperature=0.7, max_tokens=1000,
                 )
-                plan_text = resp.choices[0].message.content
+                plan_text = sanitize_text(resp.choices[0].message.content)
             except Exception as e:
                 log.error(f"规划失败: {e}")
                 return f"规划失败: {e}"
@@ -310,7 +310,7 @@ def execute_tool(tool_name, arguments):
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7, max_tokens=1000,
             )
-            return resp.choices[0].message.content
+            return sanitize_text(resp.choices[0].message.content)
         except Exception as e:
             log.error(f"AI查询失败: {e}")
             return f"AI查询失败: {e}"
@@ -325,7 +325,7 @@ def execute_tool(tool_name, arguments):
                 messages=[{"role": "user", "content": f"请用中文简洁介绍：{topic}（200字以内）"}],
                 temperature=0.7, max_tokens=500,
             )
-            summary = resp.choices[0].message.content
+            summary = sanitize_text(resp.choices[0].message.content)
         except Exception as e:
             summary = f"总结生成失败: {e}"
             log.error(f"总结生成失败: {e}")

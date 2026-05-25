@@ -5,7 +5,7 @@ import os
 import re
 import time
 from datetime import datetime
-from jarvis_config import client, browser, BASE_DIR
+from jarvis_config import client, browser, BASE_DIR, sanitize_text
 from jarvis_logger import get_logger, retry_on_failure
 
 log = get_logger("agents")
@@ -80,13 +80,16 @@ def _run_agent(agent_type, task):
         msg = choice.message
         if msg.tool_calls:
             tool_called = True
-            agent_msgs.append({
+            am = {
                 "role": "assistant", "content": msg.content,
                 "tool_calls": [{"id": tc.id, "type": "function",
                                 "function": {"name": tc.function.name,
                                              "arguments": tc.function.arguments}}
                                for tc in msg.tool_calls],
-            })
+            }
+            if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+                am["reasoning_content"] = msg.reasoning_content
+            agent_msgs.append(am)
             for tc in msg.tool_calls:
                 try:
                     args = json.loads(tc.function.arguments)
@@ -100,7 +103,7 @@ def _run_agent(agent_type, task):
                     log.error(f"      [{agent_cfg['name']}:{tc.function.name}] 工具错误: {e}")
                 agent_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": r})
             continue
-        reply = msg.content or "任务已完成"
+        reply = sanitize_text(msg.content or "任务已完成")
         return f"[{agent_cfg['name']}]{' 🔧' if tool_called else ''}\n{reply}"
     return f"[{agent_cfg['name']}] 达到最大轮次，任务可能未完成"
 
@@ -128,13 +131,16 @@ def _execute_single_step(step_desc, goal, step_num, total):
             choice = resp.choices[0]
             msg = choice.message
             if msg.tool_calls:
-                step_msgs.append({
+                sm = {
                     "role": "assistant", "content": msg.content,
                     "tool_calls": [{"id": tc.id, "type": "function",
                                     "function": {"name": tc.function.name,
                                                  "arguments": tc.function.arguments}}
                                    for tc in msg.tool_calls],
-                })
+                }
+                if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+                    sm["reasoning_content"] = msg.reasoning_content
+                step_msgs.append(sm)
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
@@ -147,7 +153,7 @@ def _execute_single_step(step_desc, goal, step_num, total):
                         r = f"工具出错: {e}"
                     step_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": r})
                 continue
-            result_text = msg.content or f"步骤{step_num}已完成"
+            result_text = sanitize_text(msg.content or f"步骤{step_num}已完成")
             ok, verify_text = _verify_step(step_desc, result_text)
             return ok, (result_text + "\n" + verify_text) if not ok else result_text
         return False, f"步骤{step_num}达到最大轮次"
@@ -170,7 +176,7 @@ def _verify_step(step_desc, result_text):
             ],
             temperature=0.3, max_tokens=100,
         )
-        answer = resp.choices[0].message.content
+        answer = sanitize_text(resp.choices[0].message.content)
         if "失败" in answer:
             return False, answer
         return True, answer
@@ -190,7 +196,7 @@ def _reflect_on_execution(goal, plan_text, results_text):
             ],
             temperature=0.6, max_tokens=400,
         )
-        reflection = resp.choices[0].message.content
+        reflection = sanitize_text(resp.choices[0].message.content)
     except Exception as e:
         reflection = f"反思生成失败: {e}"
         log.error(f"反思生成失败: {e}")
