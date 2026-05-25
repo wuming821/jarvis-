@@ -119,10 +119,8 @@ python jarvis/jarvis_main.py --text
 
 ## ⚠️ 注意事项
 
-- 需要 Clash Verge 代理运行在 `127.0.0.1:7897`，离线时自动切换直连
-- API Key 已硬编码在配置文件中，注意不要将泄露版上传到公开仓库
+-
 - `pyautogui` 的 `FAILSAFE` 已开启，鼠标移到屏幕左上角可紧急停止
-- 默认使用联想 SLBrowser 浏览器，可在 `jarvis_config.py` 中修改
 
 ---
 
