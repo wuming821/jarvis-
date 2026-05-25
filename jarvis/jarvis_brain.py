@@ -4,6 +4,9 @@ import json
 import re as _re
 from datetime import datetime
 from jarvis_config import client
+from jarvis_logger import get_logger, retry_on_failure
+
+log = get_logger("brain")
 
 
 class AgentBrain:
@@ -38,8 +41,9 @@ class AgentBrain:
             return {"intent": "mixed", "strategy": "local", "confidence": 0.9,
                     "reason": "匹配本地指令关键词"}
 
-        try:
-            resp = client.chat.completions.create(
+        @retry_on_failure(max_retries=2, delay=0.5, exceptions=(Exception,))
+        def _brain_api_call():
+            return client.chat.completions.create(
                 model="deepseek-v4-pro",
                 messages=[
                     {"role": "system", "content": f"你是Jarvis的大脑决策器。分析用户输入，输出JSON：\n"
@@ -54,6 +58,8 @@ class AgentBrain:
                 ],
                 temperature=0.3, max_tokens=150,
             )
+        try:
+            resp = _brain_api_call()
             text = resp.choices[0].message.content.strip()
             json_match = _re.search(r'\{[^}]+\}', text)
             if json_match:
@@ -62,6 +68,7 @@ class AgentBrain:
                 decision = {"intent": "chat", "strategy": "direct", "confidence": 0.5,
                             "reason": "无法解析决策JSON，默认直接回复"}
         except Exception as e:
+            log.warning(f"Brain决策API失败: {e}")
             decision = {"intent": "chat", "strategy": "direct", "confidence": 0.3,
                         "reason": f"决策出错: {e}"}
         return decision

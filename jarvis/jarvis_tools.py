@@ -1,82 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Jarvis 工具注册表 + 多Agent系统 + 自主执行引擎"""
+"""Jarvis 工具注册表 + 工具调度中心"""
 import json
 import os
 import re
 import time
-import subprocess
 from datetime import datetime
 import pyautogui
 from jarvis_config import client, browser, BASE_DIR
+from jarvis_computer import (screenshot, get_mouse_pos, get_screen_size, run_program)
+from jarvis_agents import _run_agent, _execute_single_step, _reflect_on_execution
+from jarvis_logger import get_logger
 
-
-# ======================================================
-#  电脑控制底层
-# ======================================================
-def get_screen_size():
-    s = pyautogui.size()
-    return s.width, s.height
-
-
-def screenshot(filepath=None):
-    if filepath is None:
-        filepath = os.path.join(BASE_DIR, f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-    pyautogui.screenshot(filepath)
-    return filepath
-
-
-def get_mouse_pos():
-    p = pyautogui.position()
-    return p.x, p.y
-
-
-def move_mouse(x, y):
-    pyautogui.moveTo(x, y)
-
-
-def click(x=None, y=None):
-    pyautogui.click(x, y)
-
-
-def double_click(x=None, y=None):
-    pyautogui.doubleClick(x, y)
-
-
-def right_click(x=None, y=None):
-    pyautogui.rightClick(x, y)
-
-
-def mouse_scroll(amount):
-    pyautogui.scroll(int(amount))
-
-
-def type_unicode(text):
-    pyautogui.write(text)
-
-
-def press_key(key):
-    pyautogui.press(key)
-
-
-def hotkey(*keys):
-    pyautogui.hotkey(*keys)
-
-
-def open_windows_search():
-    pyautogui.press('win')
-    time.sleep(0.3)
-
-
-def run_program(program_name):
-    open_windows_search()
-    time.sleep(0.2)
-    pyautogui.write(program_name)
-    time.sleep(0.3)
-    pyautogui.press('enter')
-
-
-def open_url(url):
-    browser.open(url)
+log = get_logger("tools")
 
 
 # ======================================================
@@ -120,181 +55,18 @@ TOOLS = [
     {"type": "function", "function": {"name": "open_file", "description": "用默认程序打开一个文件", "parameters": {"type": "object", "properties": {"filepath": {"type": "string", "description": "文件的完整路径"}}, "required": ["filepath"]}}},
 ]
 
-# ======================================================
-#  多Agent系统
-# ======================================================
-AGENT_TYPES = {
-    "researcher": {
-        "name": "研究员",
-        "description": "专门负责搜索、收集信息、总结内容。擅长联网查找资料并整理成报告。",
-        "system_prompt": "你是Jarvis的研究子Agent。你的任务是用工具搜集信息并整理成简洁的汇报。用中文回复，简洁有力。完成后说'研究完成'。",
-        "tools": ["search_web", "search_and_summarize", "ai_query", "open_website", "save_text_file", "open_file", "wait", "get_time"],
-    },
-    "executor": {
-        "name": "执行者",
-        "description": "专门负责操控电脑：打开程序、点击、输入、截图、按键。精确执行每一步操作。",
-        "system_prompt": "你是Jarvis的执行子Agent。你的任务是精确操控电脑完成操作。每一步操作后汇报结果，完成后说'执行完成'。",
-        "tools": ["run_program_tool", "computer_click", "computer_double_click", "computer_right_click",
-                  "computer_move", "computer_type", "computer_press", "computer_hotkey", "computer_scroll",
-                  "take_screenshot", "get_mouse_info", "wait", "open_file"],
-    },
-    "reflector": {
-        "name": "反思者",
-        "description": "专门负责分析任务结果、总结经验教训、更新记忆。从已完成的任务中提炼可复用的经验。",
-        "system_prompt": "你是Jarvis的反思子Agent。分析任务执行结果，提炼经验教训。调用remember_fact保存重要经验，完成后说'反思完成'。",
-        "tools": ["ai_query", "search_memory", "recall_memories", "remember_fact", "save_text_file",
-                  "get_profile", "update_profile", "get_time"],
-    },
-    "planner": {
-        "name": "规划师",
-        "description": "专门负责将复杂目标拆解为可执行的详细步骤计划。",
-        "system_prompt": "你是Jarvis的规划Agent。把目标拆成可执行的步骤，严格按格式输出：\n1.第一步描述\n2.第二步描述\n...\n每步一行，以编号开头。每步描述要具体、可执行。用 save_text_file 保存计划。完成后说'规划完成'。",
-        "tools": ["ai_query", "save_text_file", "open_file", "search_memory", "get_time"],
-    },
-}
-
-# 这些函数需要访问 memory, scheduler, brain — 通过 execute_tool 调用时传入
-# 延迟导入在函数内部完成
-
-
-def _run_agent(agent_type, task):
-    from jarvis_config import memory as _memory, scheduler as _scheduler, brain as _brain
-    agent_cfg = AGENT_TYPES.get(agent_type)
-    if not agent_cfg:
-        return f"未知Agent类型: {agent_type}，可选: {', '.join(AGENT_TYPES.keys())}"
-    agent_tools = [t for t in TOOLS if t["function"]["name"] in agent_cfg["tools"]]
-    agent_msgs = [
-        {"role": "system", "content": agent_cfg["system_prompt"]},
-        {"role": "user", "content": task},
-    ]
-    tool_called = False
-    for round_idx in range(5):
-        try:
-            resp = client.chat.completions.create(
-                model="deepseek-v4-pro", messages=agent_msgs,
-                tools=agent_tools, temperature=0.7, max_tokens=1200,
-            )
-        except Exception as e:
-            return f"[{agent_cfg['name']}] 出错: {e}"
-        choice = resp.choices[0]
-        msg = choice.message
-        if msg.tool_calls:
-            tool_called = True
-            agent_msgs.append({
-                "role": "assistant", "content": msg.content,
-                "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in msg.tool_calls],
-            })
-            for tc in msg.tool_calls:
-                try:
-                    args = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
-                    args = {}
-                try:
-                    r = execute_tool(tc.function.name, args)
-                    print(f"      [{agent_cfg['name']}:{tc.function.name}] → {r[:50]}")
-                except Exception as e:
-                    r = f"工具出错: {e}"
-                agent_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": r})
-            continue
-        reply = msg.content or "任务已完成"
-        return f"[{agent_cfg['name']}]{' 🔧' if tool_called else ''}\n{reply}"
-    return f"[{agent_cfg['name']}] 达到最大轮次，任务可能未完成"
-
-
-def _execute_single_step(step_desc, goal, step_num, total):
-    def _try_execute():
-        step_msgs = [
-            {"role": "system", "content": f"你正在执行一个多步骤任务。目标是：「{goal}」\n"
-             f"当前第{step_num}/{total}步：{step_desc}\n"
-             "用工具完成这一步，完成后汇报结果。不需要工具就直接回复完成。"},
-        ]
-        for _ in range(3):
-            try:
-                resp = client.chat.completions.create(
-                    model="deepseek-v4-pro", messages=step_msgs,
-                    tools=TOOLS, temperature=0.7, max_tokens=1000,
-                )
-            except Exception as e:
-                return False, f"出错: {e}"
-            choice = resp.choices[0]
-            msg = choice.message
-            if msg.tool_calls:
-                step_msgs.append({
-                    "role": "assistant", "content": msg.content,
-                    "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in msg.tool_calls],
-                })
-                for tc in msg.tool_calls:
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        args = {}
-                    try:
-                        r = execute_tool(tc.function.name, args)
-                        print(f"      [{tc.function.name}] → {r[:50]}")
-                    except Exception as e:
-                        r = f"工具出错: {e}"
-                    step_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": r})
-                continue
-            result_text = msg.content or f"步骤{step_num}已完成"
-            ok, verify_text = _verify_step(step_desc, result_text)
-            return ok, (result_text + "\n" + verify_text) if not ok else result_text
-        return False, f"步骤{step_num}达到最大轮次"
-
-    ok, text = _try_execute()
-    if ok:
-        return f"✅ {text}"
-    print(f"      [验证失败，自动重试...]")
-    ok2, text2 = _try_execute()
-    return f"{'✅' if ok2 else '❌'} {text2}"
-
-
-def _verify_step(step_desc, result_text):
-    try:
-        resp = client.chat.completions.create(
-            model="deepseek-v4-pro",
-            messages=[
-                {"role": "system", "content": "你是任务验证器。判断这一步是否真正完成了。如果结果中提到'已完成''已打开''已保存''已输入'等明确完成词，就是成功。如果提到'失败''出错''无法''未找到'等，就是失败。只回答：成功 或 失败，并一句话说明。"},
-                {"role": "user", "content": f"步骤: {step_desc}\n执行结果: {result_text}\n\n这一步成功了吗？"},
-            ],
-            temperature=0.3, max_tokens=100,
-        )
-        answer = resp.choices[0].message.content
-        if "失败" in answer:
-            return False, answer
-        return True, answer
-    except Exception:
-        return True, ""
-
-
-def _reflect_on_execution(goal, plan_text, results_text):
-    from jarvis_config import memory as _memory
-    try:
-        resp = client.chat.completions.create(
-            model="deepseek-v4-pro",
-            messages=[
-                {"role": "system", "content": "你是反思分析器。回顾刚才执行的任务，分析：1)哪些步骤成功了？2)哪些可以改进？3)下次遇到类似任务应该怎么做？请简洁输出，重点是一句话经验教训（以'教训：'开头）。"},
-                {"role": "user", "content": f"目标：{goal}\n\n计划：\n{plan_text}\n\n执行结果：\n{results_text}"},
-            ],
-            temperature=0.6, max_tokens=400,
-        )
-        reflection = resp.choices[0].message.content
-    except Exception as e:
-        reflection = f"反思生成失败: {e}"
-    lesson_match = re.search(r'教训[：:]\s*(.+?)(?:\n|$)', reflection)
-    lessons = lesson_match.group(1).strip() if lesson_match else reflection[:120]
-    _memory.add_reflection(goal, reflection, lessons)
-    _memory.save(emotion=None, scheduler=None, brain=None)
-    print(f"  [反思] {lessons[:80]}")
-    return reflection, lessons
-
 
 # ======================================================
 #  execute_tool — 工具调度中心
 # ======================================================
 def execute_tool(tool_name, arguments):
     from jarvis_config import memory as _memory, scheduler as _scheduler, brain as _brain
+    from jarvis_computer import (open_url as _open_url, click, double_click,
+                                  right_click, move_mouse, type_unicode,
+                                  press_key, hotkey, mouse_scroll, screenshot)
+
     if tool_name == "open_website":
-        browser.open(arguments.get("url", ""))
+        _open_url(arguments.get("url", ""), browser)
         return f"已打开 {arguments.get('name', arguments.get('url', ''))}"
 
     elif tool_name == "search_web":
@@ -310,36 +82,36 @@ def execute_tool(tool_name, arguments):
         return "未指定程序名"
 
     elif tool_name == "computer_click":
-        pyautogui.click(arguments["x"], arguments["y"])
+        click(arguments["x"], arguments["y"])
         return f"已点击 ({arguments['x']}, {arguments['y']})"
 
     elif tool_name == "computer_double_click":
-        pyautogui.doubleClick(arguments["x"], arguments["y"])
+        double_click(arguments["x"], arguments["y"])
         return f"已双击 ({arguments['x']}, {arguments['y']})"
 
     elif tool_name == "computer_right_click":
-        pyautogui.rightClick(arguments["x"], arguments["y"])
+        right_click(arguments["x"], arguments["y"])
         return f"已右键 ({arguments['x']}, {arguments['y']})"
 
     elif tool_name == "computer_move":
-        pyautogui.moveTo(arguments["x"], arguments["y"])
+        move_mouse(arguments["x"], arguments["y"])
         return f"鼠标已移至 ({arguments['x']}, {arguments['y']})"
 
     elif tool_name == "computer_type":
-        pyautogui.write(arguments["text"])
+        type_unicode(arguments["text"])
         return f"已输入「{arguments['text']}」"
 
     elif tool_name == "computer_press":
-        pyautogui.press(arguments["key"])
+        press_key(arguments["key"])
         return f"已按 {arguments['key']} 键"
 
     elif tool_name == "computer_hotkey":
         keys = arguments["keys"]
-        pyautogui.hotkey(*keys)
+        hotkey(*keys)
         return f"组合键 {'+'.join(keys)}"
 
     elif tool_name == "computer_scroll":
-        pyautogui.scroll(arguments["amount"])
+        mouse_scroll(arguments["amount"])
         return f"已滚动 {arguments['amount']} 格"
 
     elif tool_name == "take_screenshot":
@@ -397,6 +169,7 @@ def execute_tool(tool_name, arguments):
             )
             plan = resp.choices[0].message.content
         except Exception as e:
+            log.error(f"规划失败: {e}")
             return f"规划失败: {e}"
         safe_name = "".join(c for c in goal if c not in r'\/:*?"<>|')[:30]
         filename = f"{safe_name}.txt"
@@ -408,9 +181,9 @@ def execute_tool(tool_name, arguments):
 
     elif tool_name == "autonomous_execute":
         goal = arguments.get("goal", "")
-        print(f"\n  [自主执行] {goal}")
+        log.info(f"\n  [自主执行] {goal}")
         # 阶段1: Planner Agent
-        print(f"  [阶段1] Planner Agent 规划中...")
+        log.info(f"  [阶段1] Planner Agent 规划中...")
         plan_text = _run_agent("planner", f"为以下目标生成详细步骤计划，每步一行，编号格式 1.xxx\n2.xxx：\n\n{goal}")
         if "出错" in plan_text or "达到最大轮次" in plan_text:
             try:
@@ -421,23 +194,24 @@ def execute_tool(tool_name, arguments):
                 )
                 plan_text = resp.choices[0].message.content
             except Exception as e:
+                log.error(f"规划失败: {e}")
                 return f"规划失败: {e}"
         steps = re.findall(r'^\d+\.\s*(.+)', plan_text, re.MULTILINE)
         if not steps:
             return f"无法解析计划步骤:\n{plan_text}"
-        print(f"  [计划] {len(steps)} 个步骤:")
+        log.info(f"  [计划] {len(steps)} 个步骤:")
         for i, s in enumerate(steps):
-            print(f"    {i+1}. {s}")
+            log.info(f"    {i+1}. {s}")
         # 阶段2: 逐步执行
-        print(f"  [阶段2] 开始执行...")
+        log.info(f"  [阶段2] 开始执行...")
         results = []
         for i, step in enumerate(steps):
-            print(f"  [执行 {i+1}/{len(steps)}] {step[:60]}...")
+            log.info(f"  [执行 {i+1}/{len(steps)}] {step[:60]}...")
             result = _execute_single_step(step, goal, i + 1, len(steps))
             results.append(f"✓步骤{i+1}: {step}\n  → {result}")
         summary = "\n".join(results)
         # 阶段3: 反思
-        print(f"  [阶段3] Reflector Agent 反思中...")
+        log.info(f"  [阶段3] Reflector Agent 反思中...")
         refl_input = f"目标：{goal}\n\n计划：\n{plan_text}\n\n执行结果：\n{summary}"
         reflection = _run_agent("reflector", f"分析以下任务执行情况，提炼经验教训，重要经验调用 remember_fact 保存：\n\n{refl_input}")
         lesson_match = re.search(r'教训[：:]\s*(.+?)(?:\n|$)', reflection)
@@ -463,7 +237,7 @@ def execute_tool(tool_name, arguments):
     elif tool_name == "spawn_agent":
         agent_type = arguments.get("agent_type", "")
         task = arguments.get("task", "")
-        print(f"\n  [派发Agent] {agent_type} ← {task[:60]}...")
+        log.info(f"\n  [派发Agent] {agent_type} ← {task[:60]}...")
         return _run_agent(agent_type, task)
 
     elif tool_name == "brain_summary":
@@ -538,6 +312,7 @@ def execute_tool(tool_name, arguments):
             )
             return resp.choices[0].message.content
         except Exception as e:
+            log.error(f"AI查询失败: {e}")
             return f"AI查询失败: {e}"
 
     elif tool_name == "search_and_summarize":
@@ -553,6 +328,7 @@ def execute_tool(tool_name, arguments):
             summary = resp.choices[0].message.content
         except Exception as e:
             summary = f"总结生成失败: {e}"
+            log.error(f"总结生成失败: {e}")
         safe_name = "".join(c for c in topic if c not in r'\/:*?"<>|')[:30]
         filename = f"{safe_name}.txt"
         filepath = os.path.join(BASE_DIR, filename)
@@ -579,4 +355,5 @@ def execute_tool(tool_name, arguments):
         time.sleep(float(secs))
         return f"已等待 {secs}s"
 
+    log.warning(f"未知工具调用: {tool_name}")
     return f"未知工具: {tool_name}"

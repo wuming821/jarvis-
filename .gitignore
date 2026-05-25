@@ -6,3 +6,11 @@ __pycache__/
 *_err.txt
 *_out.txt
 .DS_Store
+logs/
+*.json
+!jarvis_personality.txt
+plans/
+screenshots/
+.chroma/
+*_test_memory.json
+__pycache__/

@@ -16,11 +16,47 @@ import speech_recognition as sr
 import pyttsx3
 import winsound
 import pyautogui
+from jarvis_logger import get_logger
+
+log = get_logger("config")
+
+# --- 加载 .env ---
+def _load_env():
+    """从 .env 文件加载环境变量（不依赖 python-dotenv）"""
+    env_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+    ]
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
+                        key, value = key.strip(), value.strip().strip("\"'")
+                        if key not in os.environ:
+                            os.environ[key] = value
+            log.info(f"已加载环境变量: {env_path}")
+            return
+    log.warning("未找到 .env 文件，使用系统环境变量")
 
 # --- 路径常量 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_FILE = os.path.join(BASE_DIR, "jarvis_memory.json")
 PERSONALITY_FILE = os.path.join(BASE_DIR, "jarvis_personality.txt")
+
+# --- 加载环境变量 ---
+_load_env()
+
+# --- API 配置 ---
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
+
+if not DEEPSEEK_API_KEY:
+    log.error("未设置 DEEPSEEK_API_KEY！请在 .env 文件中配置")
+    DEEPSEEK_API_KEY = "sk-placeholder"  # 避免启动崩溃
 
 # --- 模式 ---
 TEXT_MODE = '--text' in sys.argv
@@ -48,14 +84,14 @@ def _create_client():
     proxy_alive = s.connect_ex(('127.0.0.1', 7897)) == 0
     s.close()
     if proxy_alive:
-        print('[启动] 代理在线，通过代理连接 DeepSeek')
+        log.info("代理在线，通过代理连接 DeepSeek")
         http_client = httpx.Client(proxy=proxy_url)
     else:
-        print('[启动] 代理离线，直连模式')
+        log.info("代理离线，直连模式")
         http_client = httpx.Client()
     return OpenAI(
-        api_key="sk-placeholder",
-        base_url="https://api.deepseek.com",
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
         http_client=http_client,
     )
 

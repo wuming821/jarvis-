@@ -16,7 +16,12 @@ from jarvis_emotion import (EmotionSystem, update_emotion_from_input,
                              detect_user_emotion, get_user_emotion_context)
 from jarvis_scheduler import TaskManager
 from jarvis_brain import AgentBrain
-from jarvis_tools import execute_tool, screenshot, get_mouse_pos, get_screen_size, TOOLS
+from jarvis_tools import execute_tool, TOOLS
+from jarvis_agents import _run_agent
+from jarvis_computer import screenshot, get_mouse_pos, get_screen_size
+from jarvis_logger import get_logger, retry_on_failure
+
+log = get_logger("core")
 
 
 # ======================================================

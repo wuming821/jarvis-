@@ -5,7 +5,8 @@ import time
 from datetime import datetime
 import winsound
 import jarvis_config as cfg
-from jarvis_tools import execute_tool, _run_agent
+from jarvis_tools import execute_tool
+from jarvis_agents import _run_agent
 from jarvis_core import (messages, _init_messages, _load_conversations, _find_wake_word,
                           speak, listen_text, listen,
                           chat_with_tools, handle_command)
