@@ -6,7 +6,7 @@ import time
 
 # DeepSeek API
 client = OpenAI(
-    api_key="sk-placeholder",
+    api_key="你的apikey",
     base_url="https://api.deepseek.com"
 )
 
