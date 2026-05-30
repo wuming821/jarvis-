@@ -78,6 +78,8 @@ if not DEEPSEEK_API_KEY:
 
 # --- 模式 ---
 TEXT_MODE = '--text' in sys.argv
+GUI_MODE = '--gui' in sys.argv
+_gui_queue = None  # GUI 模式时由 jarvis_main 设置
 
 # --- 麦克风设备索引 (None=系统默认设备) ---
 MIC_DEVICE_INDEX = None
@@ -145,7 +147,7 @@ def _create_client():
 
 client = _create_client()
 
-# --- TTS 引擎 ---
+# --- TTS 引擎 (pyttsx3 本地回退) ---
 engine = pyttsx3.init()
 engine.setProperty('rate', 180)
 engine.setProperty('volume', 1.0)
@@ -154,6 +156,67 @@ for voice in voices:
     if 'chinese' in voice.name.lower() or 'zh' in voice.id.lower():
         engine.setProperty('voice', voice.id)
         break
+
+# --- Edge TTS (在线高质量语音) ---
+EDGE_VOICE = "zh-CN-XiaoxiaoNeural"  # 默认：晓晓（女，温暖）
+EDGE_VOICES = [
+    ("zh-CN-XiaoxiaoNeural", "晓晓 (女·温暖)"),
+    ("zh-CN-YunxiNeural",     "云希 (男·阳光)"),
+    ("zh-CN-YunyangNeural",   "云扬 (男·专业)"),
+    ("zh-CN-YunjianNeural",   "云健 (男·激情)"),
+    ("zh-CN-YunxiaNeural",    "云夏 (男·可爱)"),
+    ("zh-CN-XiaoyiNeural",    "晓伊 (女·活泼)"),
+]
+EDGE_ENABLED = True  # 是否启用 Edge TTS（离线时自动回退 pyttsx3）
+
+import asyncio as _asyncio
+import edge_tts as _edge_tts
+import tempfile as _tempfile
+import pygame.mixer as _pygame_mixer
+import time as _time
+
+
+def speak_tts(text, voice=None):
+    """统一的 TTS 输出：Edge TTS 优先，pyttsx3 回退"""
+    global EDGE_ENABLED
+    if voice is None:
+        voice = EDGE_VOICE
+
+    if EDGE_ENABLED:
+        try:
+            # 静音/空白文本 跳过
+            clean = text.strip()
+            if not clean or clean.startswith("<<silent"):
+                return
+
+            async def _gen():
+                comm = _edge_tts.Communicate(clean, voice)
+                with _tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+                    tmp = f.name
+                await comm.save(tmp)
+                return tmp
+
+            tmp_path = _asyncio.run(_gen())
+
+            _pygame_mixer.init()
+            _pygame_mixer.music.load(tmp_path)
+            _pygame_mixer.music.play()
+            while _pygame_mixer.music.get_busy():
+                _time.sleep(0.05)
+            _pygame_mixer.quit()
+
+            os.unlink(tmp_path)
+            return
+        except Exception as e:
+            log.warning(f"Edge TTS 失败，回退 pyttsx3: {e}")
+            EDGE_ENABLED = False  # 自动回退
+
+    # pyttsx3 回退
+    try:
+        engine.say(text)
+        engine.runAndWait()
+    except Exception:
+        EDGE_ENABLED = False
 
 # --- 语音识别器 ---
 recognizer = sr.Recognizer()

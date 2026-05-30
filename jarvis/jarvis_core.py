@@ -11,7 +11,8 @@ import winsound
 import pyautogui
 import jarvis_config as cfg
 from jarvis_config import (client, engine, recognizer, browser, TEXT_MODE, BASE_DIR,
-                            WAKE_WORDS, ACK_BEEP, load_personality, sanitize_text)
+                            WAKE_WORDS, ACK_BEEP, load_personality, sanitize_text,
+                            speak_tts)
 from jarvis_emotion import (EmotionSystem, update_emotion_from_input,
                              detect_user_emotion, get_user_emotion_context)
 from jarvis_scheduler import TaskManager
@@ -132,8 +133,12 @@ def _find_wake_word(text):
 # ======================================================
 def speak(text):
     print(f'贾维斯: {text}')
-    engine.say(text)
-    engine.runAndWait()
+    speak_tts(text)
+    if cfg.GUI_MODE and cfg._gui_queue is not None:
+        try:
+            cfg._gui_queue.put_nowait(("message", text, "assistant"))
+        except Exception:
+            pass
 
 
 def listen_text():
